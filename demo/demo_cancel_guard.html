@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SEAM — Demo: Cancel Guard</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    h1  { font-size: 16px; margin-bottom: 4px; }
+    p   { font-size: 12px; color: #6e7681; margin-bottom: 24px; }
+    canvas { border: 1px solid #30363d; background: #161b22; display: block; }
+    .controls { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    button {
+      padding: 8px 16px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      font-family: monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #58a6ff; color: #58a6ff; }
+    #log {
+      margin-top: 16px;
+      width: 480px;
+      font-size: 12px;
+      min-height: 48px;
+      line-height: 1.7;
+    }
+    .ok     { color: #3fb950; }
+    .err    { color: #f85149; }
+    .muted  { color: #6e7681; }
+  </style>
+</head>
+<body>
+
+<h1>⚡ SEAM — Demo: Cancel Guard</h1>
+<p>A <code>MaxEdgesGuard</code> module limits Hub to 2 outgoing edges. Try stitching a third — <code>before_stitch</code> cancels it before the graph changes.</p>
+
+<canvas id="c" width="480" height="260"></canvas>
+
+<div class="controls">
+  <button data-to="A">stitch( Hub → A )</button>
+  <button data-to="B">stitch( Hub → B )</button>
+  <button data-to="C">stitch( Hub → C )&nbsp; ← will be blocked</button>
+  <button id="btn-reset">reset</button>
+</div>
+<div id="log"><span class="muted">No operations yet.</span></div>
+
+<script type="module">
+  import { SeamCore, SeamModule } from '../src/SeamCore.js';
+
+  // ── Canvas ──────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('c');
+  const ctx    = canvas.getContext('2d');
+  const log    = document.getElementById('log');
+
+  // Hub at centre, three leaves around it.
+  const POS = {
+    Hub: { x: 240, y: 130 },
+    A:   { x: 120, y:  55 },
+    B:   { x: 380, y:  55 },
+    C:   { x: 240, y: 220 },
+  };
+
+  // Which edges are currently drawn, and whether a rejection flash is active.
+  let edges       = new Set();   // e.g. 'Hub→A'
+  let rejectFlash = 0;           // decays per frame, drives red glow on Hub
+
+  // ── Draw ────────────────────────────────────────────────────────────────
+  function drawNode(id, label) {
+    const p         = POS[id];
+    const isHub     = id === 'Hub';
+    const rejection = isHub && rejectFlash > 0;
+
+    if (rejection) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 24 + rejectFlash * 6, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(248,81,73,${rejectFlash * 0.5})`;
+      ctx.lineWidth   = 3;
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 22, 0, Math.PI * 2);
+    ctx.fillStyle   = '#0d1117';
+    ctx.strokeStyle = rejection ? '#f85149' : (isHub ? '#58a6ff' : '#30363d');
+    ctx.lineWidth   = isHub ? 2.5 : 2;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle    = '#c9d1d9';
+    ctx.font         = '12px monospace';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label || id, p.x, p.y);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw established edges
+    for (const key of edges) {
+      const [, toId] = key.split('→');
+      const from = POS['Hub'], to = POS[toId];
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = '#58a6ff';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+    }
+
+    // Draw "ghost" lines to unconnected leaves (greyed out, shows what's possible)
+    for (const id of ['A', 'B', 'C']) {
+      if (!edges.has(`Hub→${id}`)) {
+        const from = POS['Hub'], to = POS[id];
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth   = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    drawNode('Hub');
+    for (const id of ['A', 'B', 'C']) drawNode(id);
+
+    // Edge count label on Hub
+    const count = edges.size;
+    ctx.fillStyle = count >= 2 ? '#f85149' : '#3fb950';
+    ctx.font      = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${count}/2 edges`, POS['Hub'].x, POS['Hub'].y + 36);
+
+    rejectFlash = Math.max(0, rejectFlash - 0.04);
+  }
+
+  function tick() { draw(); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+
+  // ── Engine ──────────────────────────────────────────────────────────────
+  let engine;
+
+  function buildEngine() {
+    engine = new SeamCore();
+    ['Hub', 'A', 'B', 'C'].forEach(id => engine.addNode(id));
+    edges = new Set();
+
+    // ── MaxEdgesGuard Module ───────────────────────────────────────────────
+    // This is the entire guard. One before_stitch subscription.
+    // ctx.cancel() stops the mutation — after_stitch never fires.
+
+    class MaxEdgesGuard extends SeamModule {
+      constructor(max) { super(); this.max = max; }
+      install(engine) {
+        this._unsubs.push(
+          engine.on('before_stitch', (ctx) => {
+            if (ctx.from.edges.size >= this.max) {
+              ctx.cancel(`"${ctx.fromId}" already has ${this.max} edges (max reached).`);
+            }
+          })
+        );
+      }
+    }
+
+    // ── Visualizer Module ──────────────────────────────────────────────────
+    class GuardVisualizer extends SeamModule {
+      install(engine) {
+        this._unsubs.push(
+          engine.on('after_stitch', (ctx) => {
+            edges.add(`${ctx.fromId}→${ctx.toId}`);
+            log.innerHTML = `<span class="ok">after_stitch</span> &nbsp;Hub → ${ctx.toId} &nbsp;confirmed. Edge added.`;
+          }),
+          engine.on('after_sever', (ctx) => {
+            edges.delete(`${ctx.fromId}→${ctx.toId}`);
+          })
+        );
+      }
+    }
+
+    // Register guard FIRST so it runs before the visualizer.
+    engine.use(new MaxEdgesGuard(2));
+    engine.use(new GuardVisualizer());
+  }
+
+  buildEngine();
+
+  // ── Buttons ─────────────────────────────────────────────────────────────
+  document.querySelectorAll('[data-to]').forEach(btn => {
+    btn.onclick = () => {
+      const to     = btn.dataset.to;
+      const result = engine.stitch('Hub', to);
+      if (!result.success) {
+        rejectFlash = 1;
+        log.innerHTML = `<span class="err">before_stitch cancelled</span> &nbsp;→ "${result.reason}"`;
+      }
+    };
+  });
+
+  document.getElementById('btn-reset').onclick = () => {
+    buildEngine();
+    log.innerHTML = '<span class="muted">Graph reset.</span>';
+  };
+</script>
+</body>
+</html>

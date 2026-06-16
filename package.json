@@ -1,0 +1,63 @@
+{
+  "name": "seam-engine",
+  "version": "1.0.0",
+  "description": "An event-driven, modular, zero-dependency graph engine for web-based games. SeamCore manages topology; Modules handle everything else.",
+  "keywords": [
+    "game-engine",
+    "graph",
+    "event-driven",
+    "modular",
+    "browser",
+    "javascript",
+    "puzzle-game",
+    "node-graph",
+    "ecs-alternative"
+  ],
+  "homepage": "https://github.com/your-org/seam-engine#readme",
+  "bugs": {
+    "url": "https://github.com/your-org/seam-engine/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/seam-engine.git"
+  },
+  "license": "MIT",
+  "author": "SEAM Contributors",
+  "type": "module",
+  "main": "./src/SeamCore.js",
+  "module": "./src/SeamCore.js",
+  "exports": {
+    ".": {
+      "import": "./src/SeamCore.js",
+      "default": "./src/SeamCore.js"
+    }
+  },
+  "files": [
+    "src/",
+    "examples/",
+    "README.md",
+    "GDD.md",
+    "RULEBOOK.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "demo": "python3 -m http.server 8080",
+    "lint": "eslint src/ examples/ demo/",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "docs": "jsdoc src/SeamCore.js -d docs/"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "jsdoc": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "browserslist": [
+    "last 2 Chrome versions",
+    "last 2 Firefox versions",
+    "last 2 Safari versions",
+    "last 2 Edge versions"
+  ]
+}

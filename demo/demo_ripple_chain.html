@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SEAM — Demo: Ripple Chain</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    h1  { font-size: 16px; margin-bottom: 4px; }
+    p   { font-size: 12px; color: #6e7681; margin-bottom: 24px; }
+    canvas { border: 1px solid #30363d; background: #161b22; display: block; }
+    .controls { margin-top: 16px; display: flex; gap: 8px; }
+    button {
+      padding: 8px 16px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      font-family: monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #58a6ff; color: #58a6ff; }
+    #log { margin-top: 16px; width: 560px; font-size: 12px; color: #6e7681; min-height: 40px; }
+    #log span { color: #e3b341; }
+  </style>
+</head>
+<body>
+
+<h1>⚡ SEAM — Demo: Ripple Chain</h1>
+<p>Five nodes stitched in a line. Fire a ripple from Node 0 and watch it arrive at each node in BFS order, one hop at a time.</p>
+
+<canvas id="c" width="560" height="160"></canvas>
+
+<div class="controls">
+  <button id="btn-ripple">ripple( node_0 )</button>
+</div>
+<div id="log">Press the button to send a ripple.</div>
+
+<script type="module">
+  import { SeamCore, SeamModule } from '../src/SeamCore.js';
+
+  // ── Canvas ──────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('c');
+  const ctx    = canvas.getContext('2d');
+  const log    = document.getElementById('log');
+
+  // Five nodes laid out horizontally.
+  const COUNT = 5;
+  const NODES = Array.from({ length: COUNT }, (_, i) => ({
+    id: `node_${i}`,
+    x:  80 + i * 100,
+    y:  80,
+  }));
+
+  // Per-node glow intensity (0–1). Decays each frame.
+  const glow = Object.fromEntries(NODES.map(n => [n.id, 0]));
+
+  // ── Draw ────────────────────────────────────────────────────────────────
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Edges (static — drawn once the graph is built)
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth   = 2;
+    for (let i = 0; i < NODES.length - 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(NODES[i].x, NODES[i].y);
+      ctx.lineTo(NODES[i + 1].x, NODES[i + 1].y);
+      ctx.stroke();
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = glow[n.id];
+
+      // Glow ring behind the node
+      if (g > 0) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 22 + g * 8, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(227, 179, 65, ${g * 0.6})`;
+        ctx.lineWidth   = 3;
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 20, 0, Math.PI * 2);
+      ctx.fillStyle   = '#0d1117';
+      ctx.strokeStyle = g > 0 ? `rgba(227,179,65,${0.4 + g * 0.6})` : '#30363d';
+      ctx.lineWidth   = 2;
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle    = '#c9d1d9';
+      ctx.font         = '11px monospace';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(n.id, n.x, n.y);
+
+      // Decay glow
+      glow[n.id] = Math.max(0, g - 0.03);
+    }
+  }
+
+  function tick() { draw(); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+
+  // ── Engine ──────────────────────────────────────────────────────────────
+  const engine = new SeamCore();
+  NODES.forEach(n => engine.addNode(n.id));
+  for (let i = 0; i < NODES.length - 1; i++) {
+    engine.stitch(`node_${i}`, `node_${i + 1}`);
+  }
+
+  // ── Visualizer Module ────────────────────────────────────────────────────
+  // The only hook we need here is ripple_arrival.
+  // ctx.depth is the BFS hop count from the origin — we use it to stagger
+  // the glow so each node lights up slightly after the one before it.
+
+  class RippleChainVisualizer extends SeamModule {
+    install(engine) {
+      this._unsubs.push(
+        engine.on('ripple_arrival', (ctx) => {
+          // Stagger each node's glow by 150ms × depth so the wave is visible.
+          setTimeout(() => {
+            glow[ctx.nodeId] = 1;
+            log.innerHTML =
+              `<span>ripple_arrival</span> → "${ctx.nodeId}" &nbsp;|&nbsp; depth = ${ctx.depth}`;
+          }, ctx.depth * 150);
+        })
+      );
+    }
+  }
+
+  engine.use(new RippleChainVisualizer());
+
+  document.getElementById('btn-ripple').onclick = () => {
+    engine.ripple('node_0', { type: 'WAVE' });
+  };
+</script>
+</body>
+</html>

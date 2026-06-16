@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SEAM — Demo: Cycle Proof</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    h1  { font-size: 16px; margin-bottom: 4px; }
+    p   { font-size: 12px; color: #6e7681; margin-bottom: 8px; }
+    .note { font-size: 11px; color: #3fb950; margin-bottom: 20px; }
+    canvas { border: 1px solid #30363d; background: #161b22; display: block; }
+    .controls { margin-top: 16px; display: flex; gap: 8px; }
+    button {
+      padding: 8px 16px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      font-family: monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #58a6ff; color: #58a6ff; }
+    #log { margin-top: 16px; width: 480px; font-size: 12px; color: #6e7681; line-height: 1.8; }
+    #log span { color: #e3b341; }
+    #visit-list { margin-top: 8px; font-size: 11px; color: #3fb950; }
+  </style>
+</head>
+<body>
+
+<h1>⚡ SEAM — Demo: Cycle Proof</h1>
+<p>Four nodes in a closed ring (A→B→C→D→A). The ripple system visits each node exactly once — it will never loop infinitely.</p>
+<p class="note">✓ SeamCore's built-in <code>visited</code> Set prevents infinite traversal. No module code needed.</p>
+
+<canvas id="c" width="360" height="300"></canvas>
+
+<div class="controls">
+  <button id="btn-ripple">ripple( A )</button>
+</div>
+<div id="log">Press the button. Each node should appear in the visit log exactly once.</div>
+<div id="visit-list"></div>
+
+<script type="module">
+  import { SeamCore, SeamModule } from '../src/SeamCore.js';
+
+  // ── Canvas ──────────────────────────────────────────────────────────────
+  const canvas     = document.getElementById('c');
+  const ctx        = canvas.getContext('2d');
+  const log        = document.getElementById('log');
+  const visitList  = document.getElementById('visit-list');
+
+  // Four nodes arranged in a square.
+  const NODES = {
+    A: { x: 100, y:  80 },
+    B: { x: 260, y:  80 },
+    C: { x: 260, y: 220 },
+    D: { x: 100, y: 220 },
+  };
+
+  // Per-node glow (0–1), decays each frame.
+  const glow  = { A: 0, B: 0, C: 0, D: 0 };
+  // Visit order recorded during the last ripple.
+  let visitLog = [];
+
+  // ── Draw ────────────────────────────────────────────────────────────────
+  // Edges are drawn as a static ring — the cycle is always visible.
+  const EDGES = [['A','B'], ['B','C'], ['C','D'], ['D','A']];
+
+  function drawArrow(from, to) {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist, uy = dy / dist;
+    const r = 22;
+    const x1 = from.x + ux * r, y1 = from.y + uy * r;
+    const x2 = to.x   - ux * (r + 8), y2 = to.y - uy * (r + 8);
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Arrowhead
+    const ax = x2 + ux * 8, ay = y2 + uy * 8;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - uy * 5, ay + ux * 5);
+    ctx.lineTo(ax + uy * 5, ay - ux * 5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Edges
+    ctx.strokeStyle = '#30363d';
+    ctx.fillStyle   = '#30363d';
+    ctx.lineWidth   = 2;
+    for (const [a, b] of EDGES) drawArrow(NODES[a], NODES[b]);
+
+    // Nodes
+    for (const [id, pos] of Object.entries(NODES)) {
+      const g = glow[id];
+
+      if (g > 0) {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 24 + g * 10, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(227,179,65,${g * 0.5})`;
+        ctx.lineWidth   = 3;
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 22, 0, Math.PI * 2);
+      ctx.fillStyle   = '#0d1117';
+      ctx.strokeStyle = g > 0 ? '#e3b341' : '#30363d';
+      ctx.lineWidth   = 2;
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle    = '#c9d1d9';
+      ctx.font         = '13px monospace';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(id, pos.x, pos.y);
+
+      glow[id] = Math.max(0, g - 0.025);
+    }
+  }
+
+  function tick() { draw(); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+
+  // ── Engine ──────────────────────────────────────────────────────────────
+  const engine = new SeamCore();
+  ['A','B','C','D'].forEach(id => engine.addNode(id));
+  // Close the ring — A→B→C→D→A
+  engine.stitch('A','B');
+  engine.stitch('B','C');
+  engine.stitch('C','D');
+  engine.stitch('D','A');
+
+  // ── Visualizer Module ────────────────────────────────────────────────────
+  // This demo's entire point is shown in ripple_arrival alone.
+  // Notice: no cycle-prevention code here. SeamCore handles it.
+  // ctx.visited (the Set) is exposed on the context if you ever need to inspect it.
+
+  class CycleVisualizer extends SeamModule {
+    install(engine) {
+      this._unsubs.push(
+        engine.on('ripple_arrival', (ctx) => {
+          visitLog.push(ctx.nodeId);
+
+          // Stagger glow by depth to show the wave travelling around the ring.
+          setTimeout(() => {
+            glow[ctx.nodeId] = 1;
+
+            log.innerHTML =
+              `<span>ripple_arrival</span> → "${ctx.nodeId}" &nbsp;|&nbsp; depth = ${ctx.depth} &nbsp;|&nbsp; visited so far = ${ctx.visited.size}`;
+
+            visitList.textContent = 'Visit order: ' + visitLog.join(' → ');
+          }, ctx.depth * 200);
+        })
+      );
+    }
+  }
+
+  engine.use(new CycleVisualizer());
+
+  document.getElementById('btn-ripple').onclick = () => {
+    visitLog = [];
+    visitList.textContent = '';
+    engine.ripple('A', { type: 'CYCLE_TEST' });
+  };
+</script>
+</body>
+</html>
