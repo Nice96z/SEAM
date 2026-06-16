@@ -40,7 +40,7 @@ Build puzzle games. Build dungeon crawlers. Build network simulators. Build thin
 
 ```bash
 # No build step required. SEAM is pure ES6 — import it directly.
-git clone https://github.com/your-org/seam-engine.git
+git clone https://github.com/Nice96z/seam-engine.git
 ```
 
 ```js
